@@ -54,7 +54,7 @@ class SignupView(APIView):
                 employee_id=d['employee_id'],
                 email=d['email'],
                 password=d['password'],
-                role=d['role'],
+                role='EMPLOYEE',  # ✅ SECURE - always EMPLOYEE
                 first_name=d['first_name'],
                 last_name=d['last_name'],
             )

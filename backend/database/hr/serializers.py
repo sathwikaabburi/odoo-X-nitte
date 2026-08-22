@@ -19,13 +19,12 @@ from hr.models import (
 
 # ── Auth ──────────────────────────────────────────────────────────────────
 
-class SignupSerializer(serializers.Serializer):
+class SignupSerializer(serializers.Serializer):  # ✅ Not ModelSerializer
     employee_id = serializers.CharField(max_length=20)
     email = serializers.EmailField(max_length=255)
     password = serializers.CharField(min_length=8, write_only=True)
-    role = serializers.ChoiceField(choices=User.Role.choices)
-    first_name = serializers.CharField(max_length=100)
-    last_name = serializers.CharField(max_length=100)
+    first_name = serializers.CharField(max_length=100)  # ✅ Added!
+    last_name = serializers.CharField(max_length=100)   # ✅ Added!
 
     def validate_employee_id(self, value):
         if User.objects.filter(employee_id=value).exists():
@@ -36,6 +35,13 @@ class SignupSerializer(serializers.Serializer):
         if User.objects.filter(email=value).exists():
             raise serializers.ValidationError('Email already registered.')
         return value
+    # ✅ No create() method - views.py handles creation
+        return User.objects.create_user(
+            employee_id=validated_data['employee_id'],
+            email=validated_data['email'],
+            password=validated_data['password'],
+            role=User.Role.EMPLOYEE,
+        )
 
 
 class LoginSerializer(serializers.Serializer):
