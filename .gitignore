@@ -2,3 +2,6 @@
 .repomixignore
 repomix-output.xml
 *__pycache__/
+context.md
+db_design.md
+build.md

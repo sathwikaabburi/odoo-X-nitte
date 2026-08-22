@@ -207,7 +207,7 @@ class Command(BaseCommand):
             )
             self._log(f'Notification: {title}', created)
 
-        self.stdout.write(self.style.SUCCESS('✅ Seed data complete!'))
+        self.stdout.write(self.style.SUCCESS('[OK] Seed data complete!'))
 
     # helper
     def _log(self, label, created):
