@@ -1,1 +1,1 @@
-# odoo-X-nitte
+# odoo-X-nmit
