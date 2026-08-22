@@ -4,7 +4,7 @@ Management command to populate the DAYFLOW database with realistic demo data.
 Usage:
     python manage.py seed_data
 """
-import hashlib
+from django.contrib.auth.hashers import make_password
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -44,7 +44,7 @@ class Command(BaseCommand):
         # 2. Users
         # ------------------------------------------------------------------
         def _hash(pw):
-            return hashlib.sha256(pw.encode()).hexdigest()
+            return make_password(pw)
 
         user_data = [
             ('EMP001', 'admin@dayflow.io',    _hash('Admin@123'),    'ADMIN',    True),
