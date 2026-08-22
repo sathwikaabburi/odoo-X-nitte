@@ -47,14 +47,21 @@ dayflow/
   urls.py
   wsgi.py
 hr/
+  management/
+    commands/
+      __init__.py
+      seed_data.py
+    __init__.py
   migrations/
     __init__.py
+    0001_initial.py
   __init__.py
   admin.py
   apps.py
   models.py
   tests.py
   views.py
+.env.example
 context.md
 db_design.md
 manage.py
@@ -63,6 +70,410 @@ README.md
 
 <files>
 This section contains the contents of the repository's files.
+
+<file path="hr/management/commands/__init__.py">
+
+</file>
+
+<file path="hr/management/commands/seed_data.py">
+"""
+Management command to populate the DAYFLOW database with realistic demo data.
+
+Usage:
+    python manage.py seed_data
+"""
+import hashlib
+from datetime import date, timedelta
+from decimal import Decimal
+
+from django.core.management.base import BaseCommand
+from django.utils import timezone
+
+from hr.models import (
+    User, Department, EmployeeProfile, Attendance,
+    LeaveRequest, Payroll, Document, Notification,
+)
+
+
+class Command(BaseCommand):
+    help = 'Seed the DAYFLOW database with realistic demo data.'
+
+    def handle(self, *args, **options):
+        self.stdout.write(self.style.NOTICE('Seeding DAYFLOW database …'))
+
+        # ------------------------------------------------------------------
+        # 1. Departments
+        # ------------------------------------------------------------------
+        dept_data = [
+            ('Engineering', 'Software development and infrastructure'),
+            ('Human Resources', 'People management, hiring, and compliance'),
+            ('Finance', 'Accounting, budgets, and payroll processing'),
+            ('Marketing', 'Brand, campaigns, and digital outreach'),
+        ]
+        departments = {}
+        for name, desc in dept_data:
+            dept, created = Department.objects.get_or_create(
+                name=name, defaults={'description': desc},
+            )
+            departments[name] = dept
+            self._log(f'Department: {name}', created)
+
+        # ------------------------------------------------------------------
+        # 2. Users
+        # ------------------------------------------------------------------
+        def _hash(pw):
+            return hashlib.sha256(pw.encode()).hexdigest()
+
+        user_data = [
+            ('EMP001', 'admin@dayflow.io',    _hash('Admin@123'),    'ADMIN',    True),
+            ('EMP002', 'hr@dayflow.io',       _hash('Hr@123'),       'HR',       True),
+            ('EMP003', 'rahul@dayflow.io',    _hash('Rahul@123'),    'EMPLOYEE', True),
+            ('EMP004', 'priya@dayflow.io',    _hash('Priya@123'),    'EMPLOYEE', True),
+            ('EMP005', 'amit@dayflow.io',     _hash('Amit@123'),     'EMPLOYEE', True),
+            ('EMP006', 'sneha@dayflow.io',    _hash('Sneha@123'),    'EMPLOYEE', False),
+        ]
+        users = {}
+        for eid, email, pw, role, verified in user_data:
+            user, created = User.objects.get_or_create(
+                employee_id=eid,
+                defaults={
+                    'email': email,
+                    'password_hash': pw,
+                    'role': role,
+                    'is_verified': verified,
+                },
+            )
+            users[eid] = user
+            self._log(f'User: {eid} ({role})', created)
+
+        # ------------------------------------------------------------------
+        # 3. Employee Profiles
+        # ------------------------------------------------------------------
+        profile_data = [
+            ('EMP001', 'Arun',    'Kumar',   '9876543210', 'Engineering',       'CTO',               date(2022, 1, 15), date(1988, 5, 10), 'Male'),
+            ('EMP002', 'Meera',   'Nair',    '9876543211', 'Human Resources',   'HR Manager',        date(2022, 3, 1),  date(1990, 8, 22), 'Female'),
+            ('EMP003', 'Rahul',   'Sharma',  '9876543212', 'Engineering',       'Software Engineer', date(2023, 6, 10), date(1995, 2, 14), 'Male'),
+            ('EMP004', 'Priya',   'Reddy',   '9876543213', 'Marketing',         'Marketing Lead',    date(2023, 9, 1),  date(1993, 11, 5), 'Female'),
+            ('EMP005', 'Amit',    'Patel',   '9876543214', 'Finance',           'Accountant',        date(2024, 1, 15), date(1996, 7, 30), 'Male'),
+            ('EMP006', 'Sneha',   'Gupta',   '9876543215', 'Engineering',       'Intern',            date(2024, 7, 1),  date(2001, 4, 18), 'Female'),
+        ]
+        profiles = {}
+        for eid, fn, ln, phone, dept_name, desig, join, dob, gender in profile_data:
+            profile, created = EmployeeProfile.objects.get_or_create(
+                user=users[eid],
+                defaults={
+                    'first_name': fn,
+                    'last_name': ln,
+                    'phone': phone,
+                    'department': departments[dept_name],
+                    'designation': desig,
+                    'joining_date': join,
+                    'date_of_birth': dob,
+                    'gender': gender,
+                },
+            )
+            profiles[eid] = profile
+            self._log(f'Profile: {fn} {ln}', created)
+
+        # ------------------------------------------------------------------
+        # 4. Attendance Records (last 5 working days for each employee)
+        # ------------------------------------------------------------------
+        today = date.today()
+        statuses = ['PRESENT', 'PRESENT', 'PRESENT', 'HALF_DAY', 'PRESENT']
+        for eid in ['EMP003', 'EMP004', 'EMP005']:
+            for i, status in enumerate(statuses):
+                att_date = today - timedelta(days=(5 - i))
+                check_in_time = timezone.now().replace(hour=9, minute=0, second=0, microsecond=0) - timedelta(days=(5 - i))
+                check_out_time = check_in_time.replace(hour=17 if status == 'PRESENT' else 13)
+                _, created = Attendance.objects.get_or_create(
+                    employee=profiles[eid],
+                    attendance_date=att_date,
+                    defaults={
+                        'check_in': check_in_time,
+                        'check_out': check_out_time,
+                        'status': status,
+                    },
+                )
+                self._log(f'Attendance: {eid} on {att_date} → {status}', created)
+
+        # ------------------------------------------------------------------
+        # 5. Leave Requests (mix of statuses)
+        # ------------------------------------------------------------------
+        leave_data = [
+            ('EMP003', 'PAID',   today + timedelta(days=5),  today + timedelta(days=7),  'Family function',     'PENDING',   None,     None),
+            ('EMP004', 'SICK',   today - timedelta(days=10), today - timedelta(days=9),  'Fever',               'APPROVED',  'EMP002', 'Get well soon.'),
+            ('EMP005', 'UNPAID', today - timedelta(days=3),  today - timedelta(days=1),  'Personal emergency',  'REJECTED',  'EMP001', 'Insufficient notice period.'),
+        ]
+        for eid, ltype, start, end, remark, status, reviewer_eid, comment in leave_data:
+            defaults = {
+                'leave_type': ltype,
+                'start_date': start,
+                'end_date': end,
+                'remarks': remark,
+                'status': status,
+                'admin_comment': comment,
+            }
+            if reviewer_eid:
+                defaults['reviewed_by'] = users[reviewer_eid]
+                defaults['reviewed_at'] = timezone.now()
+            _, created = LeaveRequest.objects.get_or_create(
+                employee=profiles[eid],
+                leave_type=ltype,
+                start_date=start,
+                defaults=defaults,
+            )
+            self._log(f'Leave: {eid} {ltype} {status}', created)
+
+        # ------------------------------------------------------------------
+        # 6. Payroll Records
+        # ------------------------------------------------------------------
+        payroll_data = [
+            ('EMP001', Decimal('120000'), Decimal('20000'), Decimal('15000'), date(2022, 1, 1)),
+            ('EMP002', Decimal('90000'),  Decimal('15000'), Decimal('10000'), date(2022, 3, 1)),
+            ('EMP003', Decimal('60000'),  Decimal('10000'), Decimal('7000'),  date(2023, 6, 1)),
+            ('EMP004', Decimal('70000'),  Decimal('12000'), Decimal('8000'),  date(2023, 9, 1)),
+            ('EMP005', Decimal('55000'),  Decimal('8000'),  Decimal('5000'),  date(2024, 1, 1)),
+            ('EMP006', Decimal('25000'),  Decimal('2000'),  Decimal('1500'),  date(2024, 7, 1)),
+        ]
+        for eid, basic, allow, deduct, eff in payroll_data:
+            _, created = Payroll.objects.get_or_create(
+                employee=profiles[eid],
+                effective_from=eff,
+                defaults={
+                    'basic_salary': basic,
+                    'allowances': allow,
+                    'deductions': deduct,
+                    'net_salary': Decimal('0'),  # save() will recompute
+                },
+            )
+            self._log(f'Payroll: {eid} basic={basic}', created)
+
+        # ------------------------------------------------------------------
+        # 7. Documents
+        # ------------------------------------------------------------------
+        doc_data = [
+            ('EMP003', 'ID Proof',   'Aadhaar Card',   '/media/docs/emp003_aadhaar.pdf'),
+            ('EMP003', 'Resume',     'Resume_2023',    '/media/docs/emp003_resume.pdf'),
+            ('EMP004', 'ID Proof',   'PAN Card',       '/media/docs/emp004_pan.pdf'),
+        ]
+        for eid, dtype, dname, url in doc_data:
+            _, created = Document.objects.get_or_create(
+                employee=profiles[eid],
+                document_type=dtype,
+                document_name=dname,
+                defaults={'file_url': url},
+            )
+            self._log(f'Document: {eid} {dtype}', created)
+
+        # ------------------------------------------------------------------
+        # 8. Notifications
+        # ------------------------------------------------------------------
+        notif_data = [
+            ('EMP003', 'Welcome to DAYFLOW!',          'Your account has been verified.',       'SYSTEM',  True),
+            ('EMP002', 'New leave request',             'Rahul Sharma requested paid leave.',    'LEAVE',   False),
+            ('EMP001', 'Payroll updated',               'Payroll for June has been processed.',  'PAYROLL', False),
+        ]
+        for eid, title, msg, ntype, read in notif_data:
+            _, created = Notification.objects.get_or_create(
+                user=users[eid],
+                title=title,
+                defaults={
+                    'message': msg,
+                    'notification_type': ntype,
+                    'is_read': read,
+                },
+            )
+            self._log(f'Notification: {title}', created)
+
+        self.stdout.write(self.style.SUCCESS('✅ Seed data complete!'))
+
+    # helper
+    def _log(self, label, created):
+        tag = 'CREATED' if created else 'EXISTS'
+        style = self.style.SUCCESS if created else self.style.WARNING
+        self.stdout.write(style(f'  [{tag}] {label}'))
+</file>
+
+<file path="hr/management/__init__.py">
+
+</file>
+
+<file path="hr/migrations/0001_initial.py">
+# Generated by Django 6.1 on 2026-08-22 04:08
+
+import django.core.validators
+import django.db.models.deletion
+from decimal import Decimal
+from django.db import migrations, models
+
+
+class Migration(migrations.Migration):
+
+    initial = True
+
+    dependencies = [
+    ]
+
+    operations = [
+        migrations.CreateModel(
+            name='Department',
+            fields=[
+                ('id', models.BigAutoField(primary_key=True, serialize=False)),
+                ('name', models.CharField(max_length=100, unique=True)),
+                ('description', models.TextField(blank=True, null=True)),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+            ],
+            options={
+                'db_table': 'departments',
+            },
+        ),
+        migrations.CreateModel(
+            name='User',
+            fields=[
+                ('id', models.BigAutoField(primary_key=True, serialize=False)),
+                ('employee_id', models.CharField(max_length=20, unique=True)),
+                ('email', models.EmailField(max_length=255, unique=True)),
+                ('password_hash', models.TextField()),
+                ('role', models.CharField(choices=[('EMPLOYEE', 'Employee'), ('HR', 'Hr'), ('ADMIN', 'Admin')], max_length=20)),
+                ('is_verified', models.BooleanField(default=False)),
+                ('is_active', models.BooleanField(default=True)),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('updated_at', models.DateTimeField(auto_now=True)),
+            ],
+            options={
+                'db_table': 'users',
+                'indexes': [models.Index(fields=['email'], name='idx_users_email'), models.Index(fields=['employee_id'], name='idx_users_employee_id'), models.Index(fields=['role'], name='idx_users_role')],
+                'constraints': [models.CheckConstraint(condition=models.Q(('role__in', ['EMPLOYEE', 'HR', 'ADMIN'])), name='users_role_valid')],
+            },
+        ),
+        migrations.CreateModel(
+            name='EmployeeProfile',
+            fields=[
+                ('id', models.BigAutoField(primary_key=True, serialize=False)),
+                ('first_name', models.CharField(max_length=100)),
+                ('last_name', models.CharField(max_length=100)),
+                ('phone', models.CharField(blank=True, max_length=20, null=True)),
+                ('address', models.TextField(blank=True, null=True)),
+                ('profile_picture', models.TextField(blank=True, null=True)),
+                ('designation', models.CharField(blank=True, max_length=100, null=True)),
+                ('joining_date', models.DateField(blank=True, null=True)),
+                ('date_of_birth', models.DateField(blank=True, null=True)),
+                ('gender', models.CharField(blank=True, max_length=20, null=True)),
+                ('department', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='employees', to='hr.department')),
+                ('user', models.OneToOneField(on_delete=django.db.models.deletion.CASCADE, related_name='profile', to='hr.user')),
+            ],
+            options={
+                'db_table': 'employee_profiles',
+            },
+        ),
+        migrations.CreateModel(
+            name='Document',
+            fields=[
+                ('id', models.BigAutoField(primary_key=True, serialize=False)),
+                ('document_type', models.CharField(max_length=50)),
+                ('document_name', models.CharField(max_length=255)),
+                ('file_url', models.TextField()),
+                ('uploaded_at', models.DateTimeField(auto_now_add=True)),
+                ('employee', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='documents', to='hr.employeeprofile')),
+            ],
+            options={
+                'db_table': 'documents',
+                'indexes': [models.Index(fields=['document_type'], name='idx_doc_type')],
+            },
+        ),
+        migrations.CreateModel(
+            name='Attendance',
+            fields=[
+                ('id', models.BigAutoField(primary_key=True, serialize=False)),
+                ('attendance_date', models.DateField()),
+                ('check_in', models.DateTimeField(blank=True, null=True)),
+                ('check_out', models.DateTimeField(blank=True, null=True)),
+                ('status', models.CharField(choices=[('PRESENT', 'Present'), ('ABSENT', 'Absent'), ('HALF_DAY', 'Half Day'), ('LEAVE', 'Leave')], max_length=20)),
+                ('remarks', models.TextField(blank=True, null=True)),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('updated_at', models.DateTimeField(auto_now=True)),
+                ('employee', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='attendance_records', to='hr.employeeprofile')),
+            ],
+            options={
+                'db_table': 'attendance',
+                'indexes': [models.Index(fields=['attendance_date'], name='idx_att_date'), models.Index(fields=['status'], name='idx_att_status')],
+                'constraints': [models.CheckConstraint(condition=models.Q(('status__in', ['PRESENT', 'ABSENT', 'HALF_DAY', 'LEAVE'])), name='attendance_status_valid')],
+                'unique_together': {('employee', 'attendance_date')},
+            },
+        ),
+        migrations.CreateModel(
+            name='Payroll',
+            fields=[
+                ('id', models.BigAutoField(primary_key=True, serialize=False)),
+                ('basic_salary', models.DecimalField(decimal_places=2, max_digits=12, validators=[django.core.validators.MinValueValidator(Decimal('0'))])),
+                ('allowances', models.DecimalField(decimal_places=2, default=Decimal('0'), max_digits=12, validators=[django.core.validators.MinValueValidator(Decimal('0'))])),
+                ('deductions', models.DecimalField(decimal_places=2, default=Decimal('0'), max_digits=12, validators=[django.core.validators.MinValueValidator(Decimal('0'))])),
+                ('net_salary', models.DecimalField(decimal_places=2, max_digits=12, validators=[django.core.validators.MinValueValidator(Decimal('0'))])),
+                ('effective_from', models.DateField()),
+                ('updated_at', models.DateTimeField(auto_now=True)),
+                ('employee', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='payrolls', to='hr.employeeprofile')),
+            ],
+            options={
+                'db_table': 'payroll',
+                'indexes': [models.Index(fields=['effective_from'], name='idx_payroll_eff')],
+                'constraints': [models.CheckConstraint(condition=models.Q(('basic_salary__gte', Decimal('0'))), name='payroll_basic_salary_gte_0'), models.CheckConstraint(condition=models.Q(('allowances__gte', Decimal('0'))), name='payroll_allowances_gte_0'), models.CheckConstraint(condition=models.Q(('deductions__gte', Decimal('0'))), name='payroll_deductions_gte_0'), models.CheckConstraint(condition=models.Q(('net_salary__gte', Decimal('0'))), name='payroll_net_salary_gte_0')],
+            },
+        ),
+        migrations.CreateModel(
+            name='Notification',
+            fields=[
+                ('id', models.BigAutoField(primary_key=True, serialize=False)),
+                ('title', models.CharField(max_length=255)),
+                ('message', models.TextField()),
+                ('notification_type', models.CharField(blank=True, max_length=50, null=True)),
+                ('is_read', models.BooleanField(default=False)),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('user', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='notifications', to='hr.user')),
+            ],
+            options={
+                'db_table': 'notifications',
+                'indexes': [models.Index(fields=['is_read'], name='idx_notif_is_read'), models.Index(fields=['created_at'], name='idx_notif_created')],
+            },
+        ),
+        migrations.CreateModel(
+            name='LeaveRequest',
+            fields=[
+                ('id', models.BigAutoField(primary_key=True, serialize=False)),
+                ('leave_type', models.CharField(choices=[('PAID', 'Paid'), ('SICK', 'Sick'), ('UNPAID', 'Unpaid')], max_length=20)),
+                ('start_date', models.DateField()),
+                ('end_date', models.DateField()),
+                ('remarks', models.TextField(blank=True, null=True)),
+                ('status', models.CharField(choices=[('PENDING', 'Pending'), ('APPROVED', 'Approved'), ('REJECTED', 'Rejected')], default='PENDING', max_length=20)),
+                ('reviewed_at', models.DateTimeField(blank=True, null=True)),
+                ('admin_comment', models.TextField(blank=True, null=True)),
+                ('created_at', models.DateTimeField(auto_now_add=True)),
+                ('updated_at', models.DateTimeField(auto_now=True)),
+                ('employee', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='leave_requests', to='hr.employeeprofile')),
+                ('reviewed_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='reviewed_leaves', to='hr.user')),
+            ],
+            options={
+                'db_table': 'leave_requests',
+                'indexes': [models.Index(fields=['status'], name='idx_lr_status'), models.Index(fields=['leave_type'], name='idx_lr_leave_type'), models.Index(fields=['start_date'], name='idx_lr_start_date')],
+                'constraints': [models.CheckConstraint(condition=models.Q(('end_date__gte', models.F('start_date'))), name='leave_dates_valid'), models.CheckConstraint(condition=models.Q(('leave_type__in', ['PAID', 'SICK', 'UNPAID'])), name='leave_type_valid'), models.CheckConstraint(condition=models.Q(('status__in', ['PENDING', 'APPROVED', 'REJECTED'])), name='leave_status_valid')],
+            },
+        ),
+        migrations.AddIndex(
+            model_name='employeeprofile',
+            index=models.Index(fields=['department'], name='idx_ep_department'),
+        ),
+    ]
+</file>
+
+<file path=".env.example">
+# Copy this file to .env and fill in your values.
+# These environment variables are read by dayflow/settings.py
+
+DAYFLOW_DB_NAME=dayflow
+DAYFLOW_DB_USER=postgres
+DAYFLOW_DB_PASSWORD=your_password_here
+DAYFLOW_DB_HOST=localhost
+DAYFLOW_DB_PORT=5432
+</file>
 
 <file path="dayflow/__init__.py">
 
@@ -100,6 +511,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
+import os
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -166,11 +578,11 @@ WSGI_APPLICATION = 'dayflow.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'dayflow',
-        'USER': 'your_db_user',
-        'PASSWORD': 'your_db_password',
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'NAME': os.environ.get('DAYFLOW_DB_NAME', 'dayflow'),
+        'USER': os.environ.get('DAYFLOW_DB_USER', 'postgres'),
+        'PASSWORD': os.environ.get('DAYFLOW_DB_PASSWORD', ''),
+        'HOST': os.environ.get('DAYFLOW_DB_HOST', 'localhost'),
+        'PORT': os.environ.get('DAYFLOW_DB_PORT', '5432'),
     }
 }
 
@@ -276,8 +688,61 @@ application = get_wsgi_application()
 
 <file path="hr/admin.py">
 from django.contrib import admin
+from .models import (
+    User, Department, EmployeeProfile, Attendance,
+    LeaveRequest, Payroll, Document, Notification,
+)
 
-# Register your models here.
+
+@admin.register(User)
+class UserAdmin(admin.ModelAdmin):
+    list_display = ('employee_id', 'email', 'role', 'is_verified', 'is_active')
+    list_filter = ('role', 'is_verified', 'is_active')
+    search_fields = ('employee_id', 'email')
+
+
+@admin.register(Department)
+class DepartmentAdmin(admin.ModelAdmin):
+    list_display = ('name', 'created_at')
+    search_fields = ('name',)
+
+
+@admin.register(EmployeeProfile)
+class EmployeeProfileAdmin(admin.ModelAdmin):
+    list_display = ('first_name', 'last_name', 'department', 'designation', 'joining_date')
+    list_filter = ('department', 'gender')
+    search_fields = ('first_name', 'last_name')
+
+
+@admin.register(Attendance)
+class AttendanceAdmin(admin.ModelAdmin):
+    list_display = ('employee', 'attendance_date', 'status', 'check_in', 'check_out')
+    list_filter = ('status', 'attendance_date')
+    search_fields = ('employee__first_name', 'employee__last_name')
+
+
+@admin.register(LeaveRequest)
+class LeaveRequestAdmin(admin.ModelAdmin):
+    list_display = ('employee', 'leave_type', 'start_date', 'end_date', 'status', 'reviewed_by')
+    list_filter = ('status', 'leave_type')
+
+
+@admin.register(Payroll)
+class PayrollAdmin(admin.ModelAdmin):
+    list_display = ('employee', 'basic_salary', 'allowances', 'deductions', 'net_salary', 'effective_from')
+    search_fields = ('employee__first_name', 'employee__last_name')
+
+
+@admin.register(Document)
+class DocumentAdmin(admin.ModelAdmin):
+    list_display = ('employee', 'document_type', 'document_name', 'uploaded_at')
+    list_filter = ('document_type',)
+
+
+@admin.register(Notification)
+class NotificationAdmin(admin.ModelAdmin):
+    list_display = ('user', 'title', 'notification_type', 'is_read', 'created_at')
+    list_filter = ('is_read', 'notification_type')
 </file>
 
 <file path="hr/apps.py">
@@ -289,12 +754,20 @@ class HrConfig(AppConfig):
 </file>
 
 <file path="hr/models.py">
+import os
+from decimal import Decimal
+
 from django.db import models
-from django.db.models import Q
+from django.db.models import F, Q
 from django.core.validators import MinValueValidator
 
 
+# ---------------------------------------------------------------------------
+# 1. users
+# ---------------------------------------------------------------------------
 class User(models.Model):
+    """Authentication / account / role table."""
+
     class Role(models.TextChoices):
         EMPLOYEE = 'EMPLOYEE'
         HR = 'HR'
@@ -313,15 +786,27 @@ class User(models.Model):
     class Meta:
         db_table = 'users'
         indexes = [
-            models.Index(fields=['email']),
-            models.Index(fields=['employee_id']),
+            models.Index(fields=['email'], name='idx_users_email'),
+            models.Index(fields=['employee_id'], name='idx_users_employee_id'),
+            models.Index(fields=['role'], name='idx_users_role'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(role__in=['EMPLOYEE', 'HR', 'ADMIN']),
+                name='users_role_valid',
+            ),
         ]
 
     def __str__(self):
         return f"{self.employee_id} ({self.email})"
 
 
+# ---------------------------------------------------------------------------
+# 2. departments
+# ---------------------------------------------------------------------------
 class Department(models.Model):
+    """Company department."""
+
     id = models.BigAutoField(primary_key=True)
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField(null=True, blank=True)
@@ -329,21 +814,30 @@ class Department(models.Model):
 
     class Meta:
         db_table = 'departments'
-        indexes = [models.Index(fields=['name'])]
 
     def __str__(self):
         return self.name
 
 
+# ---------------------------------------------------------------------------
+# 3. employee_profiles
+# ---------------------------------------------------------------------------
 class EmployeeProfile(models.Model):
+    """Personal and job information — one‑to‑one with User."""
+
     id = models.BigAutoField(primary_key=True)
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name='profile',
+    )
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
     phone = models.CharField(max_length=20, null=True, blank=True)
     address = models.TextField(null=True, blank=True)
     profile_picture = models.TextField(null=True, blank=True)
-    department = models.ForeignKey(Department, on_delete=models.SET_NULL, null=True, blank=True, related_name='employees')
+    department = models.ForeignKey(
+        Department, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='employees',
+    )
     designation = models.CharField(max_length=100, null=True, blank=True)
     joining_date = models.DateField(null=True, blank=True)
     date_of_birth = models.DateField(null=True, blank=True)
@@ -351,13 +845,20 @@ class EmployeeProfile(models.Model):
 
     class Meta:
         db_table = 'employee_profiles'
-        indexes = [models.Index(fields=['department'])]
+        indexes = [
+            models.Index(fields=['department'], name='idx_ep_department'),
+        ]
 
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
 
 
+# ---------------------------------------------------------------------------
+# 4. attendance
+# ---------------------------------------------------------------------------
 class Attendance(models.Model):
+    """Daily employee attendance record."""
+
     class Status(models.TextChoices):
         PRESENT = 'PRESENT'
         ABSENT = 'ABSENT'
@@ -365,7 +866,10 @@ class Attendance(models.Model):
         LEAVE = 'LEAVE'
 
     id = models.BigAutoField(primary_key=True)
-    employee = models.ForeignKey(EmployeeProfile, on_delete=models.CASCADE, related_name='attendance_records')
+    employee = models.ForeignKey(
+        EmployeeProfile, on_delete=models.CASCADE,
+        related_name='attendance_records',
+    )
     attendance_date = models.DateField()
     check_in = models.DateTimeField(null=True, blank=True)
     check_out = models.DateTimeField(null=True, blank=True)
@@ -377,14 +881,27 @@ class Attendance(models.Model):
     class Meta:
         db_table = 'attendance'
         unique_together = ('employee', 'attendance_date')
-        indexes = [models.Index(fields=['attendance_date']), models.Index(fields=['status'])]
-        constraints = [models.CheckConstraint(check=models.Q(status__in=['PRESENT','ABSENT','HALF_DAY','LEAVE']), name='attendance_status_valid')]
+        indexes = [
+            models.Index(fields=['attendance_date'], name='idx_att_date'),
+            models.Index(fields=['status'], name='idx_att_status'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(status__in=['PRESENT', 'ABSENT', 'HALF_DAY', 'LEAVE']),
+                name='attendance_status_valid',
+            ),
+        ]
 
     def __str__(self):
-        return f"{self.employee} - {self.attendance_date}"
+        return f"{self.employee} — {self.attendance_date}"
 
 
+# ---------------------------------------------------------------------------
+# 5. leave_requests
+# ---------------------------------------------------------------------------
 class LeaveRequest(models.Model):
+    """Employee leave application with HR / Admin approval."""
+
     class LeaveType(models.TextChoices):
         PAID = 'PAID'
         SICK = 'SICK'
@@ -396,13 +913,21 @@ class LeaveRequest(models.Model):
         REJECTED = 'REJECTED'
 
     id = models.BigAutoField(primary_key=True)
-    employee = models.ForeignKey(EmployeeProfile, on_delete=models.CASCADE, related_name='leave_requests')
+    employee = models.ForeignKey(
+        EmployeeProfile, on_delete=models.CASCADE,
+        related_name='leave_requests',
+    )
     leave_type = models.CharField(max_length=20, choices=LeaveType.choices)
     start_date = models.DateField()
     end_date = models.DateField()
     remarks = models.TextField(null=True, blank=True)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
-    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewed_leaves')
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default='PENDING',
+    )
+    reviewed_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL,
+        null=True, blank=True, related_name='reviewed_leaves',
+    )
     reviewed_at = models.DateTimeField(null=True, blank=True)
     admin_comment = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -410,33 +935,86 @@ class LeaveRequest(models.Model):
 
     class Meta:
         db_table = 'leave_requests'
-        constraints = [
-            models.CheckConstraint(check=models.Q(end_date__gte=models.F('start_date')), name='leave_dates_valid'),
-            models.CheckConstraint(check=models.Q(leave_type__in=[t.value for t in LeaveType]), name='leave_type_valid'),
-            models.CheckConstraint(check=models.Q(status__in=[s.value for s in Status]), name='leave_status_valid'),
+        indexes = [
+            models.Index(fields=['status'], name='idx_lr_status'),
+            models.Index(fields=['leave_type'], name='idx_lr_leave_type'),
+            models.Index(fields=['start_date'], name='idx_lr_start_date'),
         ]
-        indexes = [models.Index(fields=['status']), models.Index(fields=['leave_type'])]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(end_date__gte=F('start_date')),
+                name='leave_dates_valid',
+            ),
+            models.CheckConstraint(
+                condition=Q(leave_type__in=['PAID', 'SICK', 'UNPAID']),
+                name='leave_type_valid',
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=['PENDING', 'APPROVED', 'REJECTED']),
+                name='leave_status_valid',
+            ),
+        ]
 
     def __str__(self):
-        return f"{self.employee} - {self.leave_type} ({self.start_date} to {self.end_date})"
+        return f"{self.employee} — {self.leave_type} ({self.start_date} → {self.end_date})"
 
 
+# ---------------------------------------------------------------------------
+# 6. payroll
+# ---------------------------------------------------------------------------
 class Payroll(models.Model):
+    """Employee salary structure. net_salary is computed server‑side."""
+
     id = models.BigAutoField(primary_key=True)
-    employee = models.ForeignKey(EmployeeProfile, on_delete=models.CASCADE, related_name='payrolls')
-    basic_salary = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
-    allowances = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
-    deductions = models.DecimalField(max_digits=12, decimal_places=2, default=0, validators=[MinValueValidator(0)])
-    net_salary = models.DecimalField(max_digits=12, decimal_places=2, validators=[MinValueValidator(0)])
+    employee = models.ForeignKey(
+        EmployeeProfile, on_delete=models.CASCADE,
+        related_name='payrolls',
+    )
+    basic_salary = models.DecimalField(
+        max_digits=12, decimal_places=2,
+        validators=[MinValueValidator(Decimal('0'))],
+    )
+    allowances = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal('0'),
+        validators=[MinValueValidator(Decimal('0'))],
+    )
+    deductions = models.DecimalField(
+        max_digits=12, decimal_places=2, default=Decimal('0'),
+        validators=[MinValueValidator(Decimal('0'))],
+    )
+    net_salary = models.DecimalField(
+        max_digits=12, decimal_places=2,
+        validators=[MinValueValidator(Decimal('0'))],
+    )
     effective_from = models.DateField()
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = 'payroll'
-        constraints = [models.CheckConstraint(check=models.Q(net_salary == models.F('basic_salary') + models.F('allowances') - models.F('deductions')), name='payroll_net_salary_calc')]
-        indexes = [models.Index(fields=['effective_from'])]
+        indexes = [
+            models.Index(fields=['effective_from'], name='idx_payroll_eff'),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(basic_salary__gte=Decimal('0')),
+                name='payroll_basic_salary_gte_0',
+            ),
+            models.CheckConstraint(
+                condition=Q(allowances__gte=Decimal('0')),
+                name='payroll_allowances_gte_0',
+            ),
+            models.CheckConstraint(
+                condition=Q(deductions__gte=Decimal('0')),
+                name='payroll_deductions_gte_0',
+            ),
+            models.CheckConstraint(
+                condition=Q(net_salary__gte=Decimal('0')),
+                name='payroll_net_salary_gte_0',
+            ),
+        ]
 
     def save(self, *args, **kwargs):
+        """Always compute net_salary server‑side: basic + allowances − deductions."""
         self.net_salary = self.basic_salary + self.allowances - self.deductions
         super().save(*args, **kwargs)
 
@@ -444,9 +1022,17 @@ class Payroll(models.Model):
         return f"Payroll for {self.employee} effective {self.effective_from}"
 
 
+# ---------------------------------------------------------------------------
+# 7. documents
+# ---------------------------------------------------------------------------
 class Document(models.Model):
+    """Employee‑uploaded documents."""
+
     id = models.BigAutoField(primary_key=True)
-    employee = models.ForeignKey(EmployeeProfile, on_delete=models.CASCADE, related_name='documents')
+    employee = models.ForeignKey(
+        EmployeeProfile, on_delete=models.CASCADE,
+        related_name='documents',
+    )
     document_type = models.CharField(max_length=50)
     document_name = models.CharField(max_length=255)
     file_url = models.TextField()
@@ -454,15 +1040,25 @@ class Document(models.Model):
 
     class Meta:
         db_table = 'documents'
-        indexes = [models.Index(fields=['document_type'])]
+        indexes = [
+            models.Index(fields=['document_type'], name='idx_doc_type'),
+        ]
 
     def __str__(self):
         return f"{self.document_type}: {self.document_name}"
 
 
+# ---------------------------------------------------------------------------
+# 8. notifications
+# ---------------------------------------------------------------------------
 class Notification(models.Model):
+    """Application notifications (optional for MVP)."""
+
     id = models.BigAutoField(primary_key=True)
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE,
+        related_name='notifications',
+    )
     title = models.CharField(max_length=255)
     message = models.TextField()
     notification_type = models.CharField(max_length=50, null=True, blank=True)
@@ -471,10 +1067,13 @@ class Notification(models.Model):
 
     class Meta:
         db_table = 'notifications'
-        indexes = [models.Index(fields=['is_read']), models.Index(fields=['created_at'])]
+        indexes = [
+            models.Index(fields=['is_read'], name='idx_notif_is_read'),
+            models.Index(fields=['created_at'], name='idx_notif_created'),
+        ]
 
     def __str__(self):
-        return f"{self.title} for {self.user}"
+        return f"{self.title} → {self.user}"
 </file>
 
 <file path="hr/tests.py">
@@ -490,46 +1089,130 @@ from django.shortcuts import render
 </file>
 
 <file path="context.md">
-
+ployee onboarding, profile management, 
+attendance tracking, leave management, payroll visibility, and approval workflows for 
+admins and HR officers. 
+1.2 Scope 
+The HRMS will provide: 
+● Secure authentication Sign Up / Sign In) 
+● Role-based access Admin vs Employee) 
+● Employee profile management 
+● Attendance tracking (daily/weekly view) 
+● Leave and time-off management 
+● Approval workflows for HR/Admin 
+1.3 Definitions & Abbreviations 
+● Admin / HR Officer: User with management and approval privileges 
+● Employee: Regular user with limited access 
+● Time-Off: Paid leave, sick leave, unpaid leave, etc. 
+2. User Classes and Characteristics
+User Type 
+Description 
+Admin / HR 
+Officer 
+Employee 
+Manages employees, approves leave & attendance, views payroll 
+details 
+Views personal profile, attendance, applies for leave, views salary 
+details 
+3. Functional Requirements
+3.1 Authentication & Authorization 
+3.1.1 Sign Up 
+● Users can register using: 
+○ Employee ID 
+○ Email 
+○ Password 
+○ Role Employee / HR 
+● Password must follow security rules. 
+● Email verification is required. 
+3.1.2 Sign In 
+● Users can log in using email and password. 
+● Incorrect credentials should display error messages. 
+● Successful login redirects to the dashboard. 
+3.2 Dashboard 
+3.2.1 Employee Dashboard 
+● Displays quick-access cards: 
+○ Profile 
+○ Attendance 
+○ Leave Requests 
+○ Logout 
+● Shows recent activity or alerts. 
+3.2.2 Admin / HR Dashboard 
+● Displays: 
+○ Employee list 
+○ Attendance records 
+○ Leave approvals 
+● Ability to switch between employees. 
+3.3 Employee Profile Management 
+3.3.1 View Profile 
+● Employees can view: 
+○ Personal details 
+○ Job details 
+○ Salary structure 
+○ Documents 
+○ Profile picture 
+3.3.2 Edit Profile 
+● Employees can edit limited fields (address, phone, profile picture). 
+● Admin can edit all employee details. 
+3.4 Attendance Management 
+3.4.1 Attendance Tracking 
+● Daily and weekly attendance views. 
+● Option for check-in/check-out for employee 
+● Status types: 
+○ Present 
+○ Absent 
+○ Half-day 
+○ Leave 
+3.4.2 Attendance View 
+● Employees can view only their own attendance. 
+● Admin/HR can view attendance of all employees. 
+3.5 Leave & Time-Off Management 
+3.5.1 Apply for Leave Employee) 
+● Employees can: 
+○ Select leave type Paid, Sick, Unpaid) 
+○ Choose date range 
+○ Add remarks 
+● Leave request status: 
+○ Pending 
+○ Approved 
+○ Rejected 
+3.5.2 Leave Approval Admin/HR 
+● Admin can: 
+○ View all leave requests 
+○ Approve or reject requests 
+○ Add comments 
+● Changes reflect immediately in employee records. 
+3.6 Payroll/Salary Management 
+3.6.1 Employee Payroll View 
+● Payroll data is read-only for employees. 
+3.6.2 Admin Payroll Control 
+● Admin can: 
+○ View payroll of all employees 
+○ Update salary structure 
+○ Ensure payroll accuracy 
+6. Future Enhancements
+● Email & notification alerts 
+● Analytics & reports dashboard( reports like, salary slips or attendance ) Look at this.md file in brief and implement the changes as suggested in this exactly as needed and as it says to be. And for context about the project, refer to the context.md file.
 </file>
 
 <file path="db_design.md">
-16. Current Immediate Goal
+You are a senior PostgreSQL + Django database architect working on the DAYFLOW HRMS hackathon project.
 
-Before implementing the complete project, establish the database blueprint.
+CURRENT GOAL:
+Complete ONLY the database layer. Do not build REST APIs, frontend, authentication logic, or complex backend business logic yet.
 
-The immediate sequence should be:
+SOURCE OF TRUTH:
+Use the existing Dayflow problem statement and the already-agreed database design. Do not invent new business requirements, tables, states, or fields without explicitly identifying and justifying them.
 
-Finalize table list
-Define every column
-Define PostgreSQL data types
-Define primary keys
-Define foreign keys
-Define one-to-one / one-to-many relationships
-Define constraints
-Create ER diagram
-Convert schema into Django models
-Create migrations
-Connect Django to PostgreSQL
-Create seed/demo data
-Then build/coordinate the APIs
+TECH STACK:
+PostgreSQL + Django ORM.
+Django models are the schema source of truth.
+Flow:
+Database design → ER diagram → Django models → migrations → PostgreSQL → verification → seed/demo data.
 
-Do not skip the schema-design phase.
+DATABASE:
+Create ONE PostgreSQL database named `dayflow`.
 
-The database should become the stable data contract that the backend and frontend build against.
-
-
-
-You are a senior PostgreSQL + Django database architect. Build the DAYFLOW HRMS database exactly as specified below. Treat this as the single source of truth. Do not add, remove, rename, or redesign tables/fields unless explicitly asked.
-
-GOAL
-Create ONE PostgreSQL database named DAYFLOW. It contains independent relational tables. Tables are NOT nested inside one another; relationships are created using primary keys (PK) and foreign keys (FK).
-
-TECH STACK
-PostgreSQL + Django ORM/migrations. Do NOT manually create duplicate PostgreSQL tables if Django models are used. Flow:
-Schema → ERD → Django Models → makemigrations → migrate → PostgreSQL → APIs → Frontend.
-
-TABLES
+TABLES:
 1. users
 2. departments
 3. employee_profiles
@@ -539,81 +1222,67 @@ TABLES
 7. documents
 8. notifications
 
-1) users
-Purpose: authentication/account/role.
-Columns:
+SCHEMA:
+
+users:
 - id BIGSERIAL PK
 - employee_id VARCHAR(20) NOT NULL UNIQUE
 - email VARCHAR(255) NOT NULL UNIQUE
 - password_hash TEXT NOT NULL
-- role VARCHAR(20) NOT NULL CHECK IN ('EMPLOYEE','HR','ADMIN')
+- role VARCHAR(20) NOT NULL: EMPLOYEE, HR, ADMIN
 - is_verified BOOLEAN NOT NULL DEFAULT FALSE
 - is_active BOOLEAN NOT NULL DEFAULT TRUE
 - created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 - updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
-2) departments
-Purpose: employee department.
-Columns:
+departments:
 - id BIGSERIAL PK
 - name VARCHAR(100) NOT NULL UNIQUE
-- description TEXT NULL
+- description TEXT
 - created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 
-3) employee_profiles
-Purpose: personal/job information.
-Columns:
+employee_profiles:
 - id BIGSERIAL PK
 - user_id BIGINT NOT NULL UNIQUE FK → users.id
 - first_name VARCHAR(100) NOT NULL
 - last_name VARCHAR(100) NOT NULL
-- phone VARCHAR(20) NULL
-- address TEXT NULL
-- profile_picture TEXT NULL
-- department_id BIGINT NULL FK → departments.id
-- designation VARCHAR(100) NULL
-- joining_date DATE NULL
-- date_of_birth DATE NULL
-- gender VARCHAR(20) NULL
+- phone VARCHAR(20)
+- address TEXT
+- profile_picture TEXT
+- department_id BIGINT FK → departments.id
+- designation VARCHAR(100)
+- joining_date DATE
+- date_of_birth DATE
+- gender VARCHAR(20)
 
-Relationship: users 1:1 employee_profiles; departments 1:N employee_profiles.
-
-4) attendance
-Purpose: daily employee attendance.
-Columns:
+attendance:
 - id BIGSERIAL PK
 - employee_id BIGINT NOT NULL FK → employee_profiles.id
 - attendance_date DATE NOT NULL
-- check_in TIMESTAMPTZ NULL
-- check_out TIMESTAMPTZ NULL
-- status VARCHAR(20) NOT NULL CHECK IN ('PRESENT','ABSENT','HALF_DAY','LEAVE')
-- remarks TEXT NULL
+- check_in TIMESTAMPTZ
+- check_out TIMESTAMPTZ
+- status VARCHAR(20) NOT NULL: PRESENT, ABSENT, HALF_DAY, LEAVE
+- remarks TEXT
 - created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 - updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-Constraint: UNIQUE(employee_id, attendance_date).
-Relationship: employee_profiles 1:N attendance.
+- UNIQUE(employee_id, attendance_date)
 
-5) leave_requests
-Purpose: employee leave application and HR/Admin approval.
-Columns:
+leave_requests:
 - id BIGSERIAL PK
 - employee_id BIGINT NOT NULL FK → employee_profiles.id
-- leave_type VARCHAR(20) NOT NULL CHECK IN ('PAID','SICK','UNPAID')
+- leave_type VARCHAR(20) NOT NULL: PAID, SICK, UNPAID
 - start_date DATE NOT NULL
 - end_date DATE NOT NULL
-- remarks TEXT NULL
-- status VARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK IN ('PENDING','APPROVED','REJECTED')
-- reviewed_by BIGINT NULL FK → users.id
-- reviewed_at TIMESTAMPTZ NULL
-- admin_comment TEXT NULL
+- remarks TEXT
+- status VARCHAR(20) NOT NULL DEFAULT PENDING: PENDING, APPROVED, REJECTED
+- reviewed_by BIGINT FK → users.id
+- reviewed_at TIMESTAMPTZ
+- admin_comment TEXT
 - created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 - updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-Constraint: CHECK(end_date >= start_date).
-Relationships: employee_profiles 1:N leave_requests; users 1:N reviewed leave requests.
+- CHECK(end_date >= start_date)
 
-6) payroll
-Purpose: employee salary structure.
-Columns:
+payroll:
 - id BIGSERIAL PK
 - employee_id BIGINT NOT NULL FK → employee_profiles.id
 - basic_salary DECIMAL(12,2) NOT NULL CHECK >= 0
@@ -622,95 +1291,100 @@ Columns:
 - net_salary DECIMAL(12,2) NOT NULL CHECK >= 0
 - effective_from DATE NOT NULL
 - updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-Relationship: employee_profiles 1:N payroll.
-Business rule: net_salary = basic_salary + allowances - deductions. Calculate/validate on backend; never trust frontend values.
+- net_salary = basic_salary + allowances - deductions
+- money must use DECIMAL/NUMERIC, never FLOAT
 
-7) documents
-Purpose: employee documents.
-Columns:
+documents:
 - id BIGSERIAL PK
 - employee_id BIGINT NOT NULL FK → employee_profiles.id
 - document_type VARCHAR(50) NOT NULL
 - document_name VARCHAR(255) NOT NULL
 - file_url TEXT NOT NULL
 - uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-Relationship: employee_profiles 1:N documents.
 
-8) notifications
-Purpose: application notifications; optional for MVP.
-Columns:
+notifications:
 - id BIGSERIAL PK
 - user_id BIGINT NOT NULL FK → users.id
 - title VARCHAR(255) NOT NULL
 - message TEXT NOT NULL
-- notification_type VARCHAR(50) NULL
+- notification_type VARCHAR(50)
 - is_read BOOLEAN NOT NULL DEFAULT FALSE
 - created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-Relationship: users 1:N notifications.
 
-RELATIONSHIP MAP
-users
- ├─ 1:1 → employee_profiles
- ├─ 1:N → notifications
- └─ 1:N → leave_requests through reviewed_by
+RELATIONSHIPS:
+- users 1:1 employee_profiles
+- departments 1:N employee_profiles
+- employee_profiles 1:N attendance
+- employee_profiles 1:N leave_requests
+- employee_profiles 1:N payroll
+- employee_profiles 1:N documents
+- users 1:N notifications
+- users 1:N leave_requests through reviewed_by
 
-employee_profiles
- ├─ N:1 → departments
- ├─ 1:N → attendance
- ├─ 1:N → leave_requests
- ├─ 1:N → payroll
- └─ 1:N → documents
+IMPORTANT:
+These are independent PostgreSQL tables. Attendance, payroll, leave_requests and documents are NOT sub-tables of employee_profiles. They are related using foreign keys.
 
-DATA FLOW
-Always follow:
-Frontend → API → Backend validation/business logic → PostgreSQL → API response → Frontend.
-
-CHECK-IN:
-Employee clicks Check In → API → authenticate user → identify employee → verify no attendance record exists for today → create attendance row → set check_in + PRESENT → return result.
-
-CHECK-OUT:
-Employee clicks Check Out → API → authenticate → find today's attendance → set check_out → update updated_at → return result.
-
-LEAVE:
-Employee submits form → API → validate employee, leave_type and dates → create leave_requests row → status=PENDING → Admin/HR retrieves pending requests → approve/reject → update status, reviewed_by, reviewed_at and optional admin_comment → employee retrieves updated status.
-
-PAYROLL:
-Admin updates salary → backend validates values → calculate net_salary → save payroll row → employee can only read their payroll.
-
-PROFILE:
-Authenticated employee → API → retrieve employee_profiles using user_id → employee may update allowed profile fields → Admin may update employee information according to authorization rules.
-
-DATABASE RULES
-- Every table has its own PK.
-- Every relationship uses explicit FK.
-- Never duplicate employee information unnecessarily across tables.
-- Use NOT NULL only where the field is required.
-- Use UNIQUE for employee_id, email, department name and employee/date attendance combination.
-- Use CHECK constraints for enumerated states and non-negative monetary values.
+DATABASE RULES:
+- Every table has its own primary key.
+- Use foreign keys for relationships.
+- Preserve referential integrity.
+- Do not duplicate complete employee information in related tables.
+- Use UNIQUE where specified.
+- Use CHECK constraints for fixed states and valid numeric/date values.
 - Use TIMESTAMPTZ for timestamps.
 - Use DATE for calendar dates.
-- Use DECIMAL(12,2) for money.
-- Never let the frontend be the source of truth for calculated/business-critical values.
-- Enforce authorization in the backend, not merely in the frontend.
-- Use Django migrations as the database schema implementation mechanism.
-- Add indexes to frequently queried FK/date/status fields where appropriate.
-- Preserve referential integrity.
-- Do not create duplicate tables for the same concept.
+- Use DECIMAL(12,2) for salary.
+- Add only useful indexes, especially for foreign keys and commonly queried dates.
+- Do not over-engineer the schema.
 
-IMPLEMENTATION ORDER
-1. Freeze requirements.
-2. Create table/column specification.
-3. Draw ER diagram with PK/FK and 1:1/1:N relationships.
-4. Define API contracts.
-5. Create Django models.
-6. Run makemigrations.
-7. Run migrate against PostgreSQL.
-8. Add seed/demo data.
-9. Build backend APIs/business logic.
-10. Connect frontend.
-11. Test complete workflows end-to-end.
+IMPLEMENTATION STEPS:
+1. Inspect the existing Django project and existing models first.
+2. Compare existing models against this schema.
+3. Do NOT blindly recreate existing models.
+4. Identify missing, incorrect, or conflicting fields/constraints.
+5. Make the minimum required corrections.
+6. Configure PostgreSQL database `dayflow`.
+7. Store credentials securely using environment variables; never hard-code passwords.
+8. Create Django migrations.
+9. Apply migrations to PostgreSQL.
+10. Verify every table, column, PK, FK, UNIQUE and CHECK constraint.
+11. Verify the relationships using PostgreSQL/Django inspection.
+12. Create realistic seed/demo rows:
+   - departments
+   - users with EMPLOYEE/HR/ADMIN roles
+   - employee profiles
+   - attendance records
+   - pending/approved/rejected leave requests
+   - payroll records
+   - documents if required
+13. Verify that foreign keys and constraints work by testing valid and invalid sample data.
+14. Do not proceed into API/frontend implementation.
 
-When implementing, first show the final schema, ERD relationship map, constraints, and migration/model plan. Explain every PK, FK, relationship, constraint, and data-flow step in simple language before generating implementation code. Do not improvise schema changes.
+DATA STRUCTURE CONCEPT:
+One table contains many rows.
+Each row represents one record.
+Primary keys uniquely identify rows.
+Foreign keys connect rows between tables.
+
+Example:
+employee_profiles.id = 5
+attendance.employee_id = 5
+
+means the attendance record belongs to that employee.
+
+FINAL OUTPUT REQUIRED:
+Provide:
+1. Final table list
+2. Final column/type/constraint table for each table
+3. PK/FK relationship map
+4. ER diagram
+5. Django model-to-PostgreSQL mapping
+6. Migration steps
+7. PostgreSQL verification commands
+8. Seed/demo-data structure
+9. Final database validation checklist
+
+Do not move to backend APIs until the PostgreSQL database is successfully created, migrated, populated with demo data, and verified.
 </file>
 
 <file path="manage.py">

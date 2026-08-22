@@ -36,7 +36,7 @@ class User(models.Model):
         ]
         constraints = [
             models.CheckConstraint(
-                check=Q(role__in=['EMPLOYEE', 'HR', 'ADMIN']),
+                condition=Q(role__in=['EMPLOYEE', 'HR', 'ADMIN']),
                 name='users_role_valid',
             ),
         ]
@@ -131,7 +131,7 @@ class Attendance(models.Model):
         ]
         constraints = [
             models.CheckConstraint(
-                check=Q(status__in=['PRESENT', 'ABSENT', 'HALF_DAY', 'LEAVE']),
+                condition=Q(status__in=['PRESENT', 'ABSENT', 'HALF_DAY', 'LEAVE']),
                 name='attendance_status_valid',
             ),
         ]
@@ -186,15 +186,15 @@ class LeaveRequest(models.Model):
         ]
         constraints = [
             models.CheckConstraint(
-                check=Q(end_date__gte=F('start_date')),
+                condition=Q(end_date__gte=F('start_date')),
                 name='leave_dates_valid',
             ),
             models.CheckConstraint(
-                check=Q(leave_type__in=['PAID', 'SICK', 'UNPAID']),
+                condition=Q(leave_type__in=['PAID', 'SICK', 'UNPAID']),
                 name='leave_type_valid',
             ),
             models.CheckConstraint(
-                check=Q(status__in=['PENDING', 'APPROVED', 'REJECTED']),
+                condition=Q(status__in=['PENDING', 'APPROVED', 'REJECTED']),
                 name='leave_status_valid',
             ),
         ]
@@ -240,19 +240,19 @@ class Payroll(models.Model):
         ]
         constraints = [
             models.CheckConstraint(
-                check=Q(basic_salary__gte=Decimal('0')),
+                condition=Q(basic_salary__gte=Decimal('0')),
                 name='payroll_basic_salary_gte_0',
             ),
             models.CheckConstraint(
-                check=Q(allowances__gte=Decimal('0')),
+                condition=Q(allowances__gte=Decimal('0')),
                 name='payroll_allowances_gte_0',
             ),
             models.CheckConstraint(
-                check=Q(deductions__gte=Decimal('0')),
+                condition=Q(deductions__gte=Decimal('0')),
                 name='payroll_deductions_gte_0',
             ),
             models.CheckConstraint(
-                check=Q(net_salary__gte=Decimal('0')),
+                condition=Q(net_salary__gte=Decimal('0')),
                 name='payroll_net_salary_gte_0',
             ),
         ]

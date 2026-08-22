@@ -10,7 +10,11 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
+import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -76,11 +80,11 @@ WSGI_APPLICATION = 'dayflow.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'dayflow',
-        'USER': 'your_db_user',
-        'PASSWORD': 'your_db_password',
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'NAME': os.environ.get('DAYFLOW_DB_NAME', 'dayflow'),
+        'USER': os.environ.get('DAYFLOW_DB_USER', 'postgres'),
+        'PASSWORD': os.environ.get('DAYFLOW_DB_PASSWORD', ''),
+        'HOST': os.environ.get('DAYFLOW_DB_HOST', 'localhost'),
+        'PORT': os.environ.get('DAYFLOW_DB_PORT', '5432'),
     }
 }
 
