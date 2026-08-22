@@ -22,11 +22,13 @@ function Login() {
         password,
       });
 
-      const { token, user } = response.data;
+      // ✅ The backend returns user data, NOT a token!
+      const { user } = response.data;
 
-      localStorage.setItem("dayflow_token", token);
+      // Store user data in localStorage
       localStorage.setItem("dayflow_user", JSON.stringify(user));
 
+      // Redirect based on role
       if (user.role === "EMPLOYEE") {
         navigate("/employee/dashboard");
       } else if (user.role === "HR") {
@@ -39,7 +41,9 @@ function Login() {
     } catch (err) {
       console.error("Login error:", err);
 
-      if (err.response?.data?.message) {
+      if (err.response?.data?.error) {
+        setError(err.response.data.error);
+      } else if (err.response?.data?.message) {
         setError(err.response.data.message);
       } else if (err.response?.data?.detail) {
         setError(err.response.data.detail);

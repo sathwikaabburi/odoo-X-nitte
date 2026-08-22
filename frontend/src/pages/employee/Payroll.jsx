@@ -1,11 +1,40 @@
+import { useState, useEffect } from "react";
+import api from "../../services/api";
+
 function Payroll() {
-  const payroll = {
-    basicSalary: "₹45,000",
-    allowances: "₹8,000",
-    deductions: "₹3,000",
-    netSalary: "₹50,000",
-    effectiveFrom: "01 Aug 2026",
+  const [payrollData, setPayrollData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetchPayroll();
+  }, []);
+
+  const fetchPayroll = async () => {
+    try {
+      const response = await api.get("/payroll/");
+      // Get the latest payroll record
+      const latest = response.data[0];
+      setPayrollData(latest);
+      setLoading(false);
+    } catch (err) {
+      console.error("Error fetching payroll:", err);
+      setError("Failed to load payroll data.");
+      setLoading(false);
+    }
   };
+
+  if (loading) {
+    return <div>Loading payroll...</div>;
+  }
+
+  if (error) {
+    return <div style={{ color: "red" }}>{error}</div>;
+  }
+
+  if (!payrollData) {
+    return <div>No payroll records found.</div>;
+  }
 
   return (
     <div className="payroll-page">
@@ -19,25 +48,25 @@ function Payroll() {
       <div className="stats-grid">
         <div className="stat-card">
           <span>Basic Salary</span>
-          <strong>{payroll.basicSalary}</strong>
+          <strong>₹{parseFloat(payrollData.basic_salary).toLocaleString()}</strong>
           <small>Monthly</small>
         </div>
 
         <div className="stat-card">
           <span>Allowances</span>
-          <strong>{payroll.allowances}</strong>
+          <strong>₹{parseFloat(payrollData.allowances).toLocaleString()}</strong>
           <small>Monthly</small>
         </div>
 
         <div className="stat-card">
           <span>Deductions</span>
-          <strong>{payroll.deductions}</strong>
+          <strong>₹{parseFloat(payrollData.deductions).toLocaleString()}</strong>
           <small>Monthly</small>
         </div>
 
         <div className="stat-card">
           <span>Net Salary</span>
-          <strong>{payroll.netSalary}</strong>
+          <strong>₹{parseFloat(payrollData.net_salary).toLocaleString()}</strong>
           <small>Monthly</small>
         </div>
       </div>
@@ -47,27 +76,27 @@ function Payroll() {
 
         <div className="attendance-row">
           <span>Basic Salary</span>
-          <strong>{payroll.basicSalary}</strong>
+          <strong>₹{parseFloat(payrollData.basic_salary).toLocaleString()}</strong>
         </div>
 
         <div className="attendance-row">
           <span>Allowances</span>
-          <strong>{payroll.allowances}</strong>
+          <strong>₹{parseFloat(payrollData.allowances).toLocaleString()}</strong>
         </div>
 
         <div className="attendance-row">
           <span>Deductions</span>
-          <strong>{payroll.deductions}</strong>
+          <strong>₹{parseFloat(payrollData.deductions).toLocaleString()}</strong>
         </div>
 
         <div className="attendance-row">
           <span>Net Salary</span>
-          <strong>{payroll.netSalary}</strong>
+          <strong>₹{parseFloat(payrollData.net_salary).toLocaleString()}</strong>
         </div>
 
         <div className="attendance-row">
           <span>Effective From</span>
-          <strong>{payroll.effectiveFrom}</strong>
+          <strong>{new Date(payrollData.effective_from).toLocaleDateString()}</strong>
         </div>
       </div>
     </div>
