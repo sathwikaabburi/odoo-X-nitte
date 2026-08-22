@@ -11,7 +11,7 @@ from decimal import Decimal
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from hr.models import (
+from backend.database.hr.models import (
     User, Department, EmployeeProfile, Attendance,
     LeaveRequest, Payroll, Document, Notification,
 )
